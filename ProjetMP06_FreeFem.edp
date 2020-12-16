@@ -1,0 +1,145 @@
+
+//cas 1 : Convex
+
+real l=450;
+
+// Design variables
+
+// include the getARGV function to read values of arguments specified on command line
+include "getARGV.idp";
+
+// real h0=100;
+// real h1=50;
+// real r0=30;
+// real r1=20;
+
+real h0=getARGV("h0",100);
+real h1=getARGV("h1",50);
+real r0=getARGV("r0",30);
+real r1=getARGV("r1",20);
+
+//centre et rayon du premier cercle
+
+real xc1 = 0;
+real yc1 = ((h0*h0/4)-(l*l)-(h1*h1/4))/(h0-h1);
+real R = (h0/2)-yc1;
+// cout << "yc1=" << yc1 << endl;
+// cout << "R=" << R << "\n";
+
+//centre du deuxième cercle 
+real xc2 = 0;
+real yc2 = R-h0/2;
+// cout << "yc2=" << yc2 << endl;
+// cout << "R=" << R << "\n";
+
+// calcul de l'angle des cercles (Trigonométrie)
+real alpha=asin(l/R);
+// cout << "alpha=" << alpha << endl;
+
+
+
+border a(t=-h0/2,h0/2){x=0;y=t;label=1;};
+border b(t=0,alpha){x=xc1+R*sin(t);y=yc1+R*cos(t);label= 2;};
+border c(t=h1/2,-h1/2){x=l ;y=t ;label=3 ;};
+border d(t=alpha,0){x=xc2+R*sin(t);y=yc2+R*cos(t+pi);label=4;};
+border e(t=0,2*pi){x=(l/5)+r0*cos(t);y=r0*sin(t);label=5;};
+border f(t=0,2*pi){x=(l-l/5)+r1*cos(t);y=r1*sin(t);label=6;};
+
+int n=-50;
+// plot(a(n)+b(3*n)+c(n)+d(3*n));
+
+mesh Th= buildmesh(a(n)+b(3*n)+c(n)+d(3*n)+e(n)+f(n));
+// plot(Th, ps="cas1.ps");
+
+// Résolution
+
+fespace Displacement(Th,P2);   // Bilinear elements for displacement
+fespace Stress(Th,P2);         // Bilinear elements for stress
+
+Displacement ux,uy,vx,vy;
+Stress sigmaxx,sigmayy,sigmaxy,sigmavm;
+
+
+real E = 210e3; //MPa
+real nu = 0.3;
+real mu= E/(2*(1+nu));
+real lambda = (E*nu)/((1+nu)*(1-2*nu));
+
+// Lame "equivalent" coef for plane stress model :
+real lambdaps = (2*lambda*mu)/(lambda + 2*mu);
+
+real force = -7;
+
+
+// Macro for divergent of displacement
+
+macro div(u,v) (dx(u)+dy(v)) //
+
+// Macro Epsolon
+
+macro epsilon(ux,uy) [dx(ux),dy(uy),(dy(ux)+dx(uy))/2]//
+
+
+// Macro for stress :
+
+macro sigma(ux,uy)
+    [
+        (lambdaps+2.*mu)*epsilon(ux,uy)[0] + lambdaps*epsilon(ux,uy)[1],
+        lambdaps*epsilon(ux,uy)[0] + (lambdaps+2.*mu)*epsilon(ux,uy)[1],
+        2.*mu*epsilon(ux,uy)[2]
+    ] // 
+
+
+solve Probleme([ux,uy],[vx,vy])
+	= int2d(Th)(2*mu*(epsilon(ux,uy)'*epsilon(vx,vy)) + lambda*div(ux,uy)*div(vx,vy))
+	- int1d(Th,3)(force*vy) 
+	+ on(1,ux=0,uy=0);
+
+
+// plot([ux,uy], wait=true, ps="Problemesolve.eps");
+
+// Nouveau Maillage
+// mesh th1 = movemesh(Th, [x+ux, y+uy]);
+// plot(th1,wait=1,ps="Problemesolvemesh.eps");
+
+// Stresses :
+
+sigmaxx = sigma(ux,uy)[0];
+sigmayy = sigma(ux,uy)[1];
+sigmaxy = sigma(ux,uy)[2];
+
+//Von Mises stress
+
+sigmavm = sqrt(sigmaxx*sigmaxx - sigmaxx*sigmayy + sigmayy*sigmayy + 3*sigmaxy*sigmaxy);
+
+// Compute the surface of the meshed domain :
+
+real Area=int2d(Th)(1.);
+
+// The initial mesh :
+plot(Th,ps="convex-2D-mesh.eps"); //Plots the mesh
+
+// The deformed mesh :
+
+real coef=10; 
+mesh Thd = movemesh(Th, [x+ux*coef, y+uy*coef]);
+plot(Thd,ps="convex-2D-meshdef.eps",cmm="Deformed mesh x"+coef); 
+
+// Plot von Mises stresses on deformed mesh :
+
+fespace StressDef(Thd,P2);
+StressDef sigmavmdef;
+sigmavmdef = sqrt(sigmaxx*sigmaxx - sigmaxx*sigmayy + sigmayy*sigmayy + 3*sigmaxy*sigmaxy);
+plot(sigmavmdef,ps="convex-2D-sigvm.eps",fill=true,cmm="Sig_VM");
+
+
+// Store abs value of displacement fied in vx,vy to extract proper maximal value (whatever the sign of displacement)
+
+vx = abs(ux);
+vy = abs(uy);
+
+real Umax = sqrt(vx[].max^2 + vy[].max^2); //Max. Displacement
+
+cout << "\nMax von Mises Stress " << sigmavm[].max << endl;
+cout << "Max displacement " << Umax << endl;
+cout << "Area             " << Area << endl;
